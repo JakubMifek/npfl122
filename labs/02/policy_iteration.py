@@ -53,14 +53,6 @@ if __name__ == "__main__":
     value_function = [0] * GridWorld.states
     policy = [0] * GridWorld.states
 
-    # TODO: Implement policy iteration algorithm, with `args.steps` steps of
-    # policy evaluation/policy improvement. During policy evaluation, use the
-    # current value function and perform `args.iterations` applications of the
-    # Bellman equation. Perform the policy evaluation synchronously (i.e., do
-    # not overwrite the current value function when computing its improvement).
-
-    # TODO: The final greedy policy should be in `policy`
-
     def eval(j, a, values):
         return sum(map(lambda r: r[0] * (r[1] + args.gamma * values[r[2]]), GridWorld.step(j, a)))
 
