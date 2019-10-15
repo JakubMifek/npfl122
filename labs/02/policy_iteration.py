@@ -61,6 +61,24 @@ if __name__ == "__main__":
 
     # TODO: The final greedy policy should be in `policy`
 
+    def eval(j, a, values):
+        return sum(map(lambda r: r[0] * (r[1] + args.gamma * values[r[2]]), GridWorld.step(j, a)))
+
+    for s in range(args.steps):
+        # Policy evaluation
+        for i in range(args.iterations):
+            values = value_function[:]
+            for j in range(GridWorld.states):
+                values[j] = eval(j, policy[j], value_function)
+            value_function = values
+            
+        
+        for j in range(GridWorld.states):
+            old = policy[j]
+            opts = list(map(lambda a: eval(j, a, value_function), [0, 1, 2, 3]))
+            policy[j] = opts.index(max(opts))
+
+
     # Print results
     for l in range(3):
         for c in range(4):
