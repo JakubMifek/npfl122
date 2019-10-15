@@ -33,11 +33,26 @@ parser.add_argument("--episodes", default=100, type=int, help="Training episodes
 parser.add_argument("--episode_length", default=1000, type=int, help="Number of trials per episode.")
 parser.add_argument("--seed", default=42, type=int, help="Random seed.")
 
-parser.add_argument("--mode", default="greedy", type=str, help="Mode to use -- greedy, ucb and gradient.")
+parser.add_argument("--mode", default="gradient", type=str, help="Mode to use -- greedy, ucb and gradient.")
 parser.add_argument("--alpha", default=0, type=float, help="Learning rate to use (if applicable).")
 parser.add_argument("--c", default=1, type=float, help="Confidence level in ucb (if applicable).")
 parser.add_argument("--epsilon", default=0.1, type=float, help="Exploration factor (if applicable).")
 parser.add_argument("--initial", default=0, type=float, help="Initial value function levels (if applicable).")
+
+def greedyParams(args):
+    return np.ones((2, args.bandits)) * args.initial
+
+def ucbParams(args):
+    return np.ones((args.bandits, 2)) * args.initial
+
+def gradientParams(args):
+    pass
+
+mode = {
+    'greedy': greedyParams,
+    'ucb': ucbParams,
+    'gradient': gradientParams,
+}
 
 def main(args):
     # Fix random seed
@@ -46,28 +61,49 @@ def main(args):
     # Create environment
     env = MultiArmedBandits(args.bandits, args.episode_length)
 
+    rewards = np.zeros(args.episodes)
     for episode in range(args.episodes):
         env.reset()
 
-        # TODO: Initialize parameters (depending on mode).
+        params = mode[args.mode](args)
 
+        steps = 0
         done = False
         while not done:
             # TODO: Action selection according to mode
             if args.mode == "greedy":
-                action = None
+                e = np.random.rand()
+                if e < args.epsilon:
+                    action = np.random.randint(0, args.bandits)
+                else:
+                    action = np.where(params[0,] == max(params[0,]))[0][0]
             elif args.mode == "ucb":
-                action = None
+                actions = np.fromiter(map(lambda val: np.inf if val[1] == 0 else val[0] + args.c * np.sqrt(np.log(steps) / val[1]), params), dtype='float')
+                action = np.where(actions == max(actions))[0][0]
             elif args.mode == "gradient":
-                action = None
+                action = 0
 
             _, reward, done, _ = env.step(action)
 
+            rewards[episode] += reward
+            steps += 1
+
             # TODO: Update parameters
+            if args.mode == 'greedy':
+                params[1][action] += 1
+                if args.alpha == 0:
+                    params[0][action] = params[0][action] + (reward - params[0][action])/params[1][action]
+                else:
+                    params[0][action] = params[0][action] + args.alpha * (reward - params[0][action])
+
+        rewards[episode] /= steps
+
 
     # TODO: For every episode, compute its average reward (a single number),
     # obtaining `args.episodes` values. Then return the final score as
     # mean and standard deviation of these `args.episodes` values.
+
+    return np.mean(rewards), np.std(rewards)
 
 if __name__ == "__main__":
     mean, std = main(parser.parse_args())
