@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# Team members:
+#f9afcdf4-21f5-11e8-9de3-00505601122b
+#90257956-3ea2-11e9-b0fd-00505601122b
+#13926bf3-c4b8-11e8-a4be-00505601122b
+#####################################
+# (Martin Mares)
+# (Jakub Mifek)
+# (Jan Pacovsky)
+
 import argparse
 import sys
 
