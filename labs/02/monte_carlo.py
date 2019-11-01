@@ -39,7 +39,7 @@ if __name__ == "__main__":
     import math
     import time
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", default=4000, type=int, help="Training episodes.")
+    parser.add_argument("--episodes", default=5000, type=int, help="Training episodes.")
     parser.add_argument("--render_each", default=None, type=int, help="Render some episodes.")
 
     parser.add_argument("--epsilon", default=0.15, type=float, help="Exploration factor.")
