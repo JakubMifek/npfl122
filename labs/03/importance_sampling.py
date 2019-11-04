@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#Team members:
+#f9afcdf4-21f5-11e8-9de3-00505601122b
+#90257956-3ea2-11e9-b0fd-00505601122b
+#13926bf3-c4b8-11e8-a4be-00505601122b
+#####################################
+#(Martin Mares)
+#(Jakub Mifek)
+#(Jan Pacovsky)
+
 import numpy as np
 import gym
 
@@ -22,6 +31,7 @@ if __name__ == "__main__":
     # Target policy uniformly chooses either action 1 or 2.
     V = np.zeros(states)
     C = np.zeros(states)
+    allowed = [1,2]
 
     for _ in range(args.episodes):
         state, done = env.reset(), False
@@ -34,8 +44,17 @@ if __name__ == "__main__":
             episode.append((state, action, reward))
             state = next_state
 
-        # TODO: Update V using weighted importance sampling.
-
+        G = 0
+        W = 1
+        episode.reverse()
+        for s, a, r in episode:
+            if a not in allowed:
+                break
+            G += r
+            C[s] += W
+            V[s] += (W/C[s]) * (G-V[s])
+            W *= actions/2
+        
     # Print the final value function V
     for row in V.reshape(4, 4):
         print(" ".join(["{:5.2f}".format(x) for x in row]))
