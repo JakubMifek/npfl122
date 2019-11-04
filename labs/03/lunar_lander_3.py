@@ -8,67 +8,11 @@
 #(Jakub Mifek)
 #(Jan Pacovsky)
 
-class Queue:
-    def __init__(self, iter = []):
-        self.first = None
-        self.last = None
-        self.backwards = False
-        self._in_iter = False
-        self.N = 0
-
-        for item in iter:
-            self.enqueue(item)
-
-    def __iter__(self):
-        self._in_iter = True
-        node = self.first if not self.backwards else self.last
-        while node != None:
-            yield node.value
-            node = node.succ if not self.backwards else node.pred
-        self._in_iter = False
-
-    def __len__(self):
-        return self.N
-
-    def reverse_iteration(self):
-        if self._in_iter:
-            raise "Cannot reverse when enumerating"
-        self.backwards = not self.backwards
-
-    def enqueue(self, value):
-        if self._in_iter:
-            raise "Cannot enqueue when enumerating"
-        if self.last == None:
-            self.first = self.last = Node(value)
-        else:
-            node = Node(value)
-            node.pred = self.last
-            self.last.succ = node
-            self.last = node
-        self.N += 1
-
-    def dequeue(self):
-        if self._in_iter:
-            raise "Cannot dequeue when enumerating"
-        node = self.first
-        self.first = node.succ
-        if self.first:
-            self.first.pred = None
-
-        self.N -= 1
-        
-        return node.value
-
-class Node:
-    def __init__(self, value):
-        self.value = value
-        self.succ = None
-        self.pred = None
-
 import numpy as np
 import random
 import lunar_lander_evaluator
 from functools import partial
+import my_queue
 import time
 
 
@@ -77,7 +21,7 @@ def sample_action(Q, state, epsilon, actions):
 
 
 def evaluate(Q, start_evaluate=False):
-    e = lunar_lander_evaluator.environment()
+    e = lunar_lander_evaluator.environment(verbose=start_evaluate)
     for _ in range(100 if start_evaluate else 20):
         state, done = e.reset(start_evaluate=start_evaluate), False
         while not done:
@@ -104,7 +48,7 @@ def update_Q(Q, queue, state, gamma, alpha):
 def perform_classic_episode(env, Q, n, update_Q, get_action):
     state, done = env.reset(), False
 
-    queue = Queue()
+    queue = my_queue.Queue()
 
     while not done:
         action = get_action(Q, state)
@@ -122,7 +66,7 @@ def perform_classic_episode(env, Q, n, update_Q, get_action):
 
 def perform_expert_episode(env, Q, n, update_Q):
     state, trajectory = env.expert_trajectory()
-    queue = Queue()
+    queue = my_queue.Queue()
     for action, reward, next_state in trajectory:
         queue.enqueue((state, action, reward))
         state = next_state
@@ -138,22 +82,22 @@ if __name__ == "__main__":
     # Fix random seed
     np.random.seed(42)
 
-    # T = time.time()
-    # print(time.strftime('%H:%M:%S'))
+    T = time.time()
+    print(time.strftime('%H:%M:%S'))
 
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", default=512*3.5-64,
+    parser.add_argument("--episodes", default=512*3.5+1,
                         type=int, help="Training episodes.")
     parser.add_argument("--render_each", default=0,
                         type=int, help="Render some episodes.")
     parser.add_argument("--evaluate_each", default=None,
                         type=int, help="Evaluate and optionally save after some episodes.")
 
-    parser.add_argument('--agents', default=1, type=int,
+    parser.add_argument('--agents', default=2, type=int,
                         help='Number of agents')
-    parser.add_argument('--pretrain_episodes', default=128, type=int,
+    parser.add_argument('--pretrain_episodes', default=64, type=int,
                         help='Number of episode to train with guide before real training')
     parser.add_argument('--guided', default=0.3, type=float,
                         help='Chance for guided learning')
@@ -175,7 +119,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Create the environment
-    env = lunar_lander_evaluator.environment()
+    env = lunar_lander_evaluator.environment(verbose=True)
 
     # Prepare parameters
     d_eps = args.epsilon_final
@@ -258,5 +202,5 @@ if __name__ == "__main__":
         e_2 = env.episode ** 2
 
     # Perform last 100 evaluation episodes
-    # print('Computed in {:.2f}seconds'.format(time.time() - T))
+    print('Computed in {:.2f}seconds'.format(time.time() - T))
     evaluate(best_Q, start_evaluate=True)

@@ -4,7 +4,7 @@ import numpy as np
 
 import gym_evaluator
 
-def environment(discrete=True):
+def environment(discrete=True, verbose=True):
     if discrete:
         separators = [
             np.linspace(-.4,   .4, num=5 + 1)[1:-1],   # x
@@ -16,9 +16,9 @@ def environment(discrete=True):
             [.5], #lc
             [.5], #rc
         ]
-        evaluator = gym_evaluator.GymEnvironment("LunarLander-v2", separators=separators)
+        evaluator = gym_evaluator.GymEnvironment("LunarLander-v2", separators=separators, verbose=verbose)
     else:
-        evaluator = gym_evaluator.GymEnvironment("LunarLander-v2")
+        evaluator = gym_evaluator.GymEnvironment("LunarLander-v2", verbose=verbose)
 
     evaluator._expert = gym.make("LunarLander-v2")
     evaluator._expert.seed(42)
