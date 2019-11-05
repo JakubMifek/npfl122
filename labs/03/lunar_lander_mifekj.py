@@ -76,16 +76,18 @@ def sample_action(Q, state, epsilon, actions):
     return np.random.choice(actions) if random.random() < epsilon else np.argmax(Q[state])
 
 
-def evaluate(Q, start_evaluate=False):
+def evaluate(Q, start_evaluate=False, output_file='output'):
     e = lunar_lander_evaluator.environment()
-    for _ in range(100 if start_evaluate else 20):
+    for _ in range(100):
         state, done = e.reset(start_evaluate=start_evaluate), False
         while not done:
             action = np.argmax(Q[state])
             state, _, done, _ = e.step(action)
 
+    if not start_evaluate:
+        np.save(output_file+'-'+np.mean(e._episode_returns[-100:]), Q)
 
-    return np.mean(e._episode_returns[-20:]) if not start_evaluate else 0
+    return np.mean(e._episode_returns[-100:]) if not start_evaluate else 0
 
 
 def update_Q(Q, queue, state, gamma, alpha):
@@ -132,7 +134,7 @@ def perform_expert_episode(env, Q, n, update_Q):
         update_Q(Q, queue, None)
 
 
-def train_Q(Q, args, a_eps, b_eps, c_eps, a_alp, b_alp, c_alp, a_gui, b_gui, c_gui, update_policy, get_action):
+def train_Q(Q, index, args, a_eps, b_eps, c_eps, a_alp, b_alp, c_alp, a_gui, b_gui, c_gui, update_policy, get_action):
     e_2 = 0
     epsilon = args.epsilon
     alpha = args.alpha
@@ -191,6 +193,9 @@ def train_Q(Q, args, a_eps, b_eps, c_eps, a_alp, b_alp, c_alp, a_gui, b_gui, c_g
 
         e_2 = env.episode ** 2
         episode += 1
+        if args.evaluate_each and episode % args.evaluate_each == 0:
+            val = evaluate(Q, False, args.output+'_{}'.format(index))
+            print('Q_{} performs with score {}'.format(index, val))
 
     return Q
 
@@ -204,18 +209,18 @@ if __name__ == "__main__":
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", default=1024*4,
+    parser.add_argument("--episodes", default=1024*80,
                         type=int, help="Training episodes.")
     parser.add_argument("--render_each", default=0,
                         type=int, help="Render some episodes.")
     parser.add_argument("--evaluate_each", default=None,
                         type=int, help="Evaluate and optionally save after some episodes.")
-    parser.add_argument("--output", default="models/q_02", type=str,
+    parser.add_argument("--output", default="models/q_01(lb=3;ep=80e3)", type=str,
                         help="Output filename.")
 
     parser.add_argument('--agents', default=8,
                         type=int, help='Number of agents')
-    parser.add_argument('--pretrain_episodes', default=256, type=int,
+    parser.add_argument('--pretrain_episodes', default=512*10, type=int,
                         help='Number of episode to train with guide before real training')
     parser.add_argument('--guided', default=0.3, type=float,
                         help='Chance for guided learning')
@@ -232,7 +237,7 @@ if __name__ == "__main__":
                         type=float, help="Final exploration factor.")
     parser.add_argument("--gamma", default=0.98, type=float,
                         help="Discounting factor.")
-    parser.add_argument("--lookback", default=4, type=float,
+    parser.add_argument("--lookback", default=3, type=float,
                         help="Number of lookback states.")
     args = parser.parse_args()
 
@@ -273,7 +278,7 @@ if __name__ == "__main__":
 
     # Process in parallel
     pool = mp.Pool()
-    Qs = pool.map(train, Qs)
+    Qs = pool.starmap(train, [(Qs[i], i) for i in range(len(Qs))])
     pool.close()
     pool.join()
 

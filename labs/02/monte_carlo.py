@@ -18,7 +18,7 @@ def do_100_episodes(env, Q, start_evaluate):
         state, done = env.reset(start_evaluate=start_evaluate), False
         while not done:
             action = np.argmax(Q[state])
-            state, reward, done, _ = env.step(action)
+            state, _, done, _ = env.step(action)
 
 def mix_Q(Qs):
     R = np.zeros((Qs[0][2].states,Qs[0][2].actions))
