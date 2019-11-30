@@ -177,7 +177,7 @@ if __name__ == "__main__":
             # reset step to avoid overflow
             step = 0
 
-
+    # TODO: Save the network for submission
 
 
     # while not done:
