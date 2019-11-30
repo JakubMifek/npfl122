@@ -12,7 +12,7 @@ class Network:
         self.model.add(tf.keras.layers.Conv2D(filters=64, kernel_size=(3,3), activation='relu', strides=1))
         self.model.add(tf.keras.layers.Flatten())
         self.model.add(tf.keras.layers.Dense(512, activation='relu'))
-        self.model.add(tf.keras.layers.Dense(3*args.actions))
+        self.model.add(tf.keras.layers.Dense(args.actions**3))
         self.model.compile(
             optimizer='sgd',
             loss='mse',
@@ -26,7 +26,7 @@ class Network:
         self.target.add(tf.keras.layers.Conv2D(filters=64, kernel_size=(3,3), activation='relu', strides=1))
         self.target.add(tf.keras.layers.Flatten())
         self.target.add(tf.keras.layers.Dense(512, activation='relu'))
-        self.target.add(tf.keras.layers.Dense(3*args.actions))
+        self.target.add(tf.keras.layers.Dense(args.actions**3))
         self.target.compile()
         # TODO: Create a suitable network
 
@@ -44,10 +44,12 @@ class Network:
     #   the new q_value belongs
     def train(self, states): # TODO: + params
         # TODO
+        # Train ideally on batch of images
         pass
 
     def predict(self, states):
         # TODO
+        # Predict ideally a batch of values
         pass
 
     def reset_target_weights(self):
@@ -70,7 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", default=0.95, type=float, help="Discounting factor.")
 
     parser.add_argument("--buffer", default=1024**2, type=int, help="Replay buffer size.")
-    parser.add_argument("--actions", default=6, type=int, help="To how many buckets discretize actions.")
+    parser.add_argument("--actions", default=3, type=int, help="To how many buckets discretize actions.")
     parser.add_argument("--batch_size", default=32, type=int, help="Batch size for the NN.")
     parser.add_argument("--reset_target_each", default=1024, type=int, help="How often to reset target network (in steps).")
     args = parser.parse_args()
@@ -84,19 +86,47 @@ if __name__ == "__main__":
     # Create the environment
     env = car_racing_evaluator.environment(args.frame_skip)
 
-    # TODO: Implement a variation to Deep Q Network algorithm.
+    # Replay Buffer
     replay_buffer = collections.deque(maxlen=args.buffer)
+
+    # Size of the buffer (in order to not use slow count)
     N = 0
+
+    # Transition tuple
     Transition = collections.namedtuple("Transition", ["state", "action", "reward", "done", "next_state"])
 
+    # Actions that can be executed
+    actions = []
+    a = -1
+    b = 0
+    c = 0
+    ad = 2.0/(args.actions-1)
+    bd = 1.0/(args.actions-1)
+    cd = 1.0/(args.actions-1)
+
+    for i in range(args.actions):
+        for j in range(args.actions):
+            for k in range(args.actions):
+                actions.append([round(a+ad*i, 1), round(b+bd*j, 1), round(c+cd*k, 1)])
+    
+    # Epsilon
     epsilon = args.epsilon
+
+    # Alpha
     alpha = args.alpha
 
+    # Network to predict Q with two models - target and model
+    # Model weights can be copied to target network using the
+    # dedicated function `reset_target_weights`
     network = Network(env, args)
-    step = 0
-    episode = 0
-    # Perform a training episode
 
+    # Current step used for updating target network "once in a while"
+    step = 0
+
+    # Current episode since env in parallel execution does not count them
+    episode = 0
+    
+    # Initialize args.threads parallel agents
     states, dones = env.parallel_init(args.threads), [False] * args.threads
     while episode < args.episodes:
         actions = np.zeros((args.threads, 3))
@@ -105,35 +135,46 @@ if __name__ == "__main__":
             if dones[i]:
                 # Perform some evaluation or something
                 pass
+
+            # Determine action
             actions[i] += np.array([0, 1, 0])
         
+        # Execute all actions
         returns = env.parallel_step(actions)
+        # Increase step count
         step += 1
-        print('action taken')
 
         for i in range(len(dones)):
             next_state, reward, done, _ = returns[i]
+            # Append step to the buffer
             if N < args.buffer:
                 N += 1
             else:
                 replay_buffer.popleft()
 
+            # If done => new episode automatically started
             if done:
                 episode += 1
 
+            # Append Transition to replay buffer
             replay_buffer.append(Transition(states[i], actions[i], reward, done, next_state))
 
             # TODO: Implement some reward system
 
+            # Update state
             states[i] = next_state
         
+        # Update epsilon and alpha
         if args.epsilon_final:
             epsilon = np.exp(np.interp(env.episode + 1, [0, args.episodes], [np.log(args.epsilon), np.log(args.epsilon_final)]))
         if args.alpha_final:
             alpha = np.exp(np.interp(env.episode + 1, [0, args.episodes], [np.log(args.alpha), np.log(args.alpha_final)]))
+
+        # If step is a multiplication of args.reset_target_each, reset target network weights to the current model's
         if step % args.reset_target_each == 0:
             print(episode)
             network.reset_target_weights()
+            # reset step to avoid overflow
             step = 0
 
 
