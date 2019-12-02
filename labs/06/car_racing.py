@@ -19,7 +19,7 @@ class Network:
         self.model.add(tf.keras.layers.Conv3D(filters=64, kernel_size=(1,3,3), activation='relu', strides=1))
         self.model.add(tf.keras.layers.Flatten())
         self.model.add(tf.keras.layers.Dense(512, activation='relu'))
-        self.model.add(tf.keras.layers.Dense(args.actions**3))
+        self.model.add(tf.keras.layers.Dense(args.actions**2 * 2))
         self.model.compile(
             optimizer='rmsprop',
             loss='mse',
@@ -35,7 +35,7 @@ class Network:
         self.target.add(tf.keras.layers.Conv3D(filters=64, kernel_size=(1,3,3), activation='relu', strides=1))
         self.target.add(tf.keras.layers.Flatten())
         self.target.add(tf.keras.layers.Dense(512, activation='relu'))
-        self.target.add(tf.keras.layers.Dense(args.actions**3))
+        self.target.add(tf.keras.layers.Dense(args.actions**2 * 2))
         self.target.compile(
             optimizer='rmsprop',
             loss='mse',
@@ -100,22 +100,23 @@ if __name__ == "__main__":
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", default=16*4, type=int, help="Training episodes.")
+    parser.add_argument("--episodes", default=215*7, type=int, help="Training episodes.")
     parser.add_argument("--frame_skip", default=4, type=int, help="Repeat actions for given number of frames.")
-    parser.add_argument("--frame_history", default=8, type=int, help="Number of past frames to stack together.")
+    parser.add_argument("--frame_history", default=6, type=int, help="Number of past frames to stack together.")
     parser.add_argument("--render_each", default=4, type=int, help="Render some episodes.")
-    parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
+    parser.add_argument("--threads", default=7, type=int, help="Maximum number of threads to use.")
 
     parser.add_argument("--alpha", default=0.5, type=float, help="Learning rate.")
     parser.add_argument("--alpha_final", default=0.01, type=float, help="Final learning rate.")
     parser.add_argument("--epsilon", default=0.5, type=float, help="Exploration factor.")
-    parser.add_argument("--epsilon_final", default=0.0001, type=float, help="Final exploration factor.")
+    parser.add_argument("--epsilon_final", default=0.001, type=float, help="Final exploration factor.")
     parser.add_argument("--gamma", default=0.9, type=float, help="Discounting factor.")
 
-    parser.add_argument("--buffer", default=1024**2, type=int, help="Replay buffer size.")
+    parser.add_argument("--buffer", default=1024*16, type=int, help="Replay buffer size.")
     parser.add_argument("--actions", default=3, type=int, help="To how many buckets discretize actions.")
-    parser.add_argument("--batch_size", default=64, type=int, help="Batch size for the NN.")
-    parser.add_argument("--reset_target_each", default=32, type=int, help="How often to reset target network (in steps).")
+    parser.add_argument("--batch_size", default=128, type=int, help="Batch size for the NN.")
+    parser.add_argument("--reset_target_each", default=10, type=int, help="How often to reset target network (in steps).")
+    parser.add_argument("--test_each", default=32, type=int, help="How often to reset target network (in steps).")
     args = parser.parse_args()
 
     # Fix random seeds and number of threads
@@ -134,19 +135,26 @@ if __name__ == "__main__":
     Transition = collections.namedtuple("Transition", ["state", "action", "reward", "done", "next_state"])
 
     # Actions that can be executed
+
+    STEER_MAX = 0.5
+    GAS_MAX = 0.3
+    BRAKE_MAX = 0.3
+
     actions = []
-    a = -1
+    a = -STEER_MAX
     b = 0
     c = 0
-    ad = 2.0/(args.actions-1)
-    bd = 1.0/(args.actions-1)
-    cd = 1.0/(args.actions-1)
+    ad = 2*STEER_MAX/(args.actions-1)
+    bd = GAS_MAX/(args.actions-1)
+    cd = BRAKE_MAX/(args.actions-1)
 
     for i in range(args.actions):
         for j in range(args.actions):
-            for k in range(args.actions):
-                actions.append([round(a+ad*i, 1), round(b+bd*j, 1), round(c+cd*k, 1)])
-    
+            actions.append([round(a+ad*i, 3), round(b+bd*j, 3), 0])
+
+        for k in range(args.actions):
+            actions.append([round(a+ad*i, 3), 0, round(c+cd*k, 3)])
+
     # Epsilon
     epsilon = args.epsilon
 
@@ -205,6 +213,7 @@ if __name__ == "__main__":
                 state_history[i] = [next_state for j in range(args.frame_history)]
                 # we finished an episode
                 episode += 1
+                print('Episode {} in {}s'.format(episode, round(time.time()-T)))
             else:
                 # remove last state and add a the new one
                 state_history[i] = state_history[i][1:]
@@ -241,8 +250,12 @@ if __name__ == "__main__":
 
         # If step is a multiplication of args.reset_target_each, reset target network weights to the current model's
         if step % args.reset_target_each == 0:
+            network.reset_target_weights()
+            print('reset')
+            
+        if step % args.test_each == 0:
             # Get some statistics
-            print('Episode {} in {}s'.format(episode, round(time.time()-T)))
+            print('TEST {}'.format(env.episode))
 
             # Trial run
             state, done = env.reset(False), False
@@ -260,10 +273,10 @@ if __name__ == "__main__":
 
             print('Reward {}'.format(R))
 
-            network.reset_target_weights()
-            
-            # reset step to avoid overflow
+        if step % max(args.test_each, args.reset_target_each) == 0:
+            print('reset step')
             step = 0
+
 
     network.set_done(True)
 
