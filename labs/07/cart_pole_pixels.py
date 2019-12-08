@@ -107,6 +107,8 @@ if __name__ == "__main__":
 
     training = True
 
+    best_result = 200
+
     # Training
     for n in range(N):
         batch_states, batch_actions, batch_returns = [], [], []
@@ -150,12 +152,14 @@ if __name__ == "__main__":
             batch_actions.append(actions)
             batch_returns.append(Gs)
 
-        print('Reward {} -- mean[-10:] {}'.format(env._episode_returns[-1], np.mean(env._episode_returns[-10:])))
+        print('Reward {} -- mean[-10:] {} -- in {}s'.format(env._episode_returns[-1], np.mean(env._episode_returns[-10:]), round(time.time() - T, 2)))
 
         # print('Last return: {}'.format(round(np.mean(env._episode_returns[-args.batch_size:]), 2)))
 
-        if round(np.mean(env._episode_returns[-10:]), 2) > 460:
-            training = False
+        if round(np.mean(env._episode_returns[-10:]), 2) > best_result:
+            print('saving model')
+            best_result = round(np.mean(env._episode_returns[-10:]), 2)
+            network.model.save('networks/reinforce-pixels-{}.model'.format(best_result))
 
         if not training:
             break
