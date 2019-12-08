@@ -128,157 +128,20 @@ if __name__ == "__main__":
     # Create the environment
     env = car_racing_evaluator.environment(args.frame_skip)
 
-    # Size of the buffer (in order to not use slow count)
-    N = 0
+    # TODO: Implement a variation to Deep Q Network algorithm.
+    #
+    # Example: How to perform an episode with "always gas" agent.
+    state, done = env.reset(), False
+    while not done:
+        if args.render_each and (env.episode + 1) % args.render_each == 0:
+            env.render()
 
-    # Transition tuple
-    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "done", "next_state"])
+        action = [0, 1, 0]
+        next_state, reward, done, _ = env.step(action)
 
-    # Actions that can be executed
-
-    STEER_MAX = 0.5
-    GAS_MAX = 0.3
-    BRAKE_MAX = 0.3
-
-    actions = []
-    a = -STEER_MAX
-    b = 0
-    c = 0
-    ad = 2*STEER_MAX/(args.actions-1)
-    bd = GAS_MAX/(args.actions-1)
-    cd = BRAKE_MAX/(args.actions-1)
-
-    for i in range(args.actions):
-        for j in range(args.actions):
-            actions.append([round(a+ad*i, 3), round(b+bd*j, 3), 0])
-
-        for k in range(args.actions):
-            actions.append([round(a+ad*i, 3), 0, round(c+cd*k, 3)])
-
-    # Epsilon
-    epsilon = args.epsilon
-
-    # Alpha
-    alpha = args.alpha
-
-    # Network to predict Q with two models - target and model
-    # Model weights can be copied to target network using the
-    # dedicated function `reset_target_weights`
-    network.init(env, args)
-
-    # Current step used for updating target network "once in a while"
-    step = 0
-
-    # Current episode since env in parallel execution does not count them
-    episode = 0
-    
-    # Initialize args.threads parallel agents
-    states, dones = env.parallel_init(args.threads), [False] * args.threads
-
-    # State history
-    state_history = [[state for i in range(args.frame_history)] for state in states]
-
-    T = time.time()
-
-    while episode < args.episodes:
-        # Determine actions
-        if epsilon < np.random.rand():
-            # random action for each agent
-            acts = [i for i in np.random.choice(range(len(actions)), size=[args.threads])]
-        else:
-            # predicted action for each agent
-            predictions = network.predict(state_history)
-            acts = [i for i in np.argmax(predictions, axis=1)]
-
-        # Execute all actions
-        returns = env.parallel_step([actions[i] for i in acts])
-        # Increase step count
-        step += 1
-
-        for i in range(len(dones)):
-            next_state, reward, done, _ = returns[i]
-
-            # Append step to the buffer
-            if N < args.buffer:
-                N += 1
-            else:
-                replay_buffer.popleft()
-
-            # Append Transition to replay buffer
-            replay_buffer.append(Transition([state for state in state_history[i]], acts[i], reward, done, (next_state if not done else None)))
-
-            # If done => new episode automatically started
-            if done:
-                # reset state history
-                state_history[i] = [next_state for j in range(args.frame_history)]
-                # we finished an episode
-                episode += 1
-                print('Episode {} in {}s'.format(episode, round(time.time()-T)))
-            else:
-                # remove last state and add a the new one
-                state_history[i] = state_history[i][1:]
-                state_history[i].append(next_state)
-
-            # Update state
-            states[i] = next_state
-        
-        # Train on some images
-
-        # Choose several random transitions (batch_size)
-        chosen = [replay_buffer[idx] for idx in [np.random.randint(0, len(replay_buffer)) for i in range(args.batch_size)]] 
-
-        # Get states
-        states = [trans.state for trans in chosen]
-
-        # Get actions
-        acts = [trans.action for trans in chosen]
-
-        # Get rewards
-        rewards = [trans.reward for trans in chosen]
-
-        # Get next states
-        next_states = [trans.next_state for trans in chosen]
-
-        # Train on chosen transitions
-        network.train(states, acts, rewards, next_states, args)
-
-        # Update epsilon and alpha
-        if args.epsilon_final:
-            epsilon = np.exp(np.interp(env.episode + 1, [0, args.episodes], [np.log(args.epsilon), np.log(args.epsilon_final)]))
-        if args.alpha_final:
-            alpha = np.exp(np.interp(env.episode + 1, [0, args.episodes], [np.log(args.alpha), np.log(args.alpha_final)]))
-
-        # If step is a multiplication of args.reset_target_each, reset target network weights to the current model's
-        if step % args.reset_target_each == 0:
-            network.reset_target_weights()
-            print('reset')
-            
-        if step % args.test_each == 0:
-            # Get some statistics
-            print('TEST {}'.format(env.episode))
-
-            # Trial run
-            state, done = env.reset(False), False
-            R = 0
-            sh = [state for i in range(args.frame_history)]
-            while not done:
-                if args.render_each and env.episode > 0 and env.episode % args.render_each == 0:
-                    env.render()
-
-                action = np.argmax(network.predict([sh])[0])
-                state, reward, done, _ = env.step(actions[action])
-                sh = sh[1:]
-                sh.append(state)
-                R += reward
-
-            print('Reward {}'.format(R))
-
-        if step % max(args.test_each, args.reset_target_each) == 0:
-            print('reset step')
-            step = 0
-
-
-    network.set_done(True)
-
-    # Save network for future use
-    network.save()
+    # After training (or loading the model), you should run the evaluation:
+    while True:
+        state, done = env.reset(True), False
+        while not done:
+            # Choose greedy action
+            state, reward, done, _ = env.step(action)
