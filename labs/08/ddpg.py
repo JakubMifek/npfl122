@@ -12,21 +12,56 @@ class Network:
         action_components = env.action_shape[0]
         action_lows, action_highs = map(np.array, env.action_ranges)
 
-        # TODO: Create `actor` network, starting with `inputs` and returning
+        print(action_components)
+        print(action_lows)
+        print(action_highs)
+
+        mul_values = tf.ones((action_components,)) * np.array(map(lambda i: action_highs[i] - action_lows[i], range(len(action_lows))))
+        add_values = tf.ones((action_components,)) * action_lows
+
+        mul_var = tf.Variable(initial_value=mul_values, trainable=False)
+        add_var = tf.Variable(initial_value=add_values, trainable=False)
+
+        # Create `actor` network, starting with `inputs` and returning
         # `action_components` values for each batch example. Usually, one
         # or two hidden layers are employed. Each `action_component[i]` should
         # be mapped to range `[actions_lows[i]..action_highs[i]]`, for example
         # using `tf.nn.sigmoid` and suitable rescaling.
-        #
+        input_layer = tf.keras.layers.Input(input_shape=env.state_shape)
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
+        hidden = tf.keras.layers.Dense(action_components, activation='sigmoid')(hidden)
+        
+        hidden = tf.keras.layers.Multiply()((hidden, mul_var))
+        output_layer = tf.keras.layers.Add()((hidden, add_var))
+
+        self.actor = tf.keras.models.Model(inputs=[input_layer], outputs=[output_layer])
+        self.actor.compile(
+            optimizer='adam',
+            loss='mse'
+        )
         # Then, create a target actor as a copy of the model using
         # `tf.keras.models.clone_model`.
+        self.target_actor = tf.keras.models.clone_model(self.actor)
 
-        # TODO: Create `critic` network, starting with `inputs` and `actions`
+        # Create `critic` network, starting with `inputs` and `actions`
         # and producing a vector of predicted returns. Usually, `inputs` are fed
         # through a hidden layer first, and then concatenated with `actions` and fed
         # through two more hidden layers, before computing the returns.
-        #
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
+        action_layer = tf.keras.layers.Input(input_shape=(1,))
+        hidden = tf.keras.layers.Concatenate()((hidden, action_layer))
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
+        output_layer = tf.keras.layers.Dense(1)(hidden)
+
+        self.critic = tf.keras.models.Model(inputs=[input_layer, action_layer], outputs=[output_layer])
+        self.critic.compile(
+            optimizer='adam',
+            loss='mse'
+        )
+
         # Then, create a target critic as a copy of the model using `tf.keras.models.clone_model`.
+        self.target_critic = tf.keras.models.clone_model(self.critic)
 
     @tf.function
     def _train(self, states, actions, returns):
