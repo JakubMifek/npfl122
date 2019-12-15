@@ -11,14 +11,14 @@ class Network:
         assert len(env.action_shape) == 1
         self.tau = args.target_tau
         action_components = env.action_shape[0]
-        action_lows, action_highs = map(np.array, env.action_ranges)
-        action_diff = np.array(list(map(lambda i: action_highs[i] - action_lows[i], range(len(action_lows)))))
+        # action_lows, action_highs = map(np.array, env.action_ranges)
+        # action_diff = np.array(list(map(lambda i: action_highs[i] - action_lows[i], range(len(action_lows)))))
 
-        mul_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_diff))
-        add_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_lows))
+        # mul_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_diff))
+        # add_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_lows))
 
-        mul_var = tf.Variable(initial_value=mul_values, trainable=False)
-        add_var = tf.Variable(initial_value=add_values, trainable=False)
+        # mul_var = tf.Variable(initial_value=mul_values, trainable=False)
+        # add_var = tf.Variable(initial_value=add_values, trainable=False)
 
         # Create `actor` network, starting with `inputs` and returning
         # `action_components` values for each batch example. Usually, one
@@ -27,10 +27,7 @@ class Network:
         # using `tf.nn.sigmoid` and suitable rescaling.
         input_layer = tf.keras.layers.Input(shape=env.state_shape)
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
-        hidden = tf.keras.layers.Dense(action_components, activation='sigmoid')(hidden)
-        
-        hidden = tf.keras.layers.Multiply()([hidden, mul_var])
-        output_layer = tf.keras.layers.Add()([hidden, add_var])
+        output_layer = tf.keras.layers.Dense(action_components, activation='sigmoid')(hidden)
 
         self.actor = tf.keras.models.Model(inputs=[input_layer], outputs=[output_layer])
         self.actor.compile(
@@ -57,7 +54,7 @@ class Network:
 
         self.critic = tf.keras.models.Model(inputs=[input_layer, action_layer], outputs=[output_layer])
         self.critic.compile(
-            optimizer='adam',
+            optimizer=tf.keras.optimizers.Adam(learning_rate=args.learning_rate),
             loss='mse'
         )
 
@@ -65,19 +62,52 @@ class Network:
 
         # Then, create a target critic as a copy of the model using `tf.keras.models.clone_model`.
         self.target_critic = tf.keras.models.clone_model(self.critic)
+        self._actor_optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate)
 
     @tf.function
     def _train(self, states, actions, returns):
-        # TODO: Train separately the actor and critic.
-        self.critic.train_on_batch((states, actions), returns)
-        self.actor.train_on_batch(states, actions)
+        loss = self.critic.train_on_batch((states, actions), returns)
+        
+        actions = self.actor(states, training=True)
+        
+        
+        with tf.GradientTape(watch_accessed_variables=False) as tape:
+            tape.watch(actions)
+            q_values = self.critic((states, actions), training=False)
+            actions = tf.nest.flatten(actions)
 
-        # Furthermore, update the weights of the target actor and critic networks
-        # by using args.target_tau option.
-        # self.target_actor.set_weights(self.actor.get_weights())
-        # print('target actor trained')
-        # self.target_critic.set_weights(self.critic.get_weights())
-        # print('target critic trained')
+        dqdas = tape.gradient([q_values], actions)
+
+        with tf.GradientTape(watch_accessed_variables=False) as main_tape:
+            main_tape.watch(actions)
+            actor_losses = []
+            for dqda, action in zip(dqdas, actions):
+                loss = tf.keras.losses.MSE(tf.stop_gradient(dqda + action), action)
+                loss = tf.reduce_mean(loss)
+                actor_losses.append(loss)
+
+            actor_loss = tf.add_n(actor_losses)
+
+        actor_grads = main_tape.gradient(actor_loss, self.actor.variables)
+        self._actor_optimizer.apply_gradients(actor_grads, self.actor.variables)
+
+
+
+
+        # # TODO: Train separately the actor and critic.
+        # self.critic.train_on_batch((states, actions), returns)
+        # actor_preds = self.actor(states, training=True)
+        # grads = self.critic.gradients((states, actor_preds))
+        # # weights = tf.reshape(self.critic((states, actions),training = False), [-1])
+        # #self.actor.train_on_batch(states, actions) # , sample_weight=weights)
+        # self.actor
+
+        # # Furthermore, update the weights of the target actor and critic networks
+        # # by using args.target_tau option.
+        # # self.target_actor.set_weights(self.actor.get_weights())
+        # # print('target actor trained')
+        # # self.target_critic.set_weights(self.critic.get_weights())
+        # # print('target critic trained')
 
     def train(self, states, actions, returns):
         states, actions, returns = np.array(states, np.float32), np.array(actions, np.float32), np.array(returns, np.float32)
@@ -130,16 +160,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", default=256, type=int, help="Batch size.")
     parser.add_argument("--env", default="Pendulum-v0", type=str, help="Environment.")
-    parser.add_argument("--evaluate_each", default=50, type=int, help="Evaluate each number of episodes.")
+    parser.add_argument("--evaluate_each", default=10, type=int, help="Evaluate each number of episodes.")
     parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
     parser.add_argument("--noise_sigma", default=0.2, type=float, help="UB noise sigma.")
     parser.add_argument("--noise_theta", default=0.15, type=float, help="UB noise theta.")
-    parser.add_argument("--gamma", default=0.95, type=float, help="Discounting factor.")
-    parser.add_argument("--hidden_layer", default=20, type=int, help="Size of hidden layer.")
-    parser.add_argument("--learning_rate", default=1e-3, type=float, help="Learning rate.")
-    parser.add_argument("--render_each", default=None, type=int, help="Render some episodes.")
-    parser.add_argument("--target_tau", default=1e-4, type=float, help="Target network update weight.")
-    parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
+    parser.add_argument("--gamma", default=0.9, type=float, help="Discounting factor.")
+    parser.add_argument("--hidden_layer", default=128, type=int, help="Size of hidden layer.")
+    parser.add_argument("--learning_rate", default=1e-4, type=float, help="Learning rate.")
+    parser.add_argument("--render_each", default=10, type=int, help="Render some episodes.")
+    parser.add_argument("--target_tau", default=1e-3, type=float, help="Target network update weight.")
+    parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
     args = parser.parse_args()
 
     # Fix random seeds and number of threads
@@ -151,6 +181,7 @@ if __name__ == "__main__":
     # Create the environment
     env = gym_evaluator.GymEnvironment(args.env)
     action_lows, action_highs = map(np.array, env.action_ranges)
+    print(action_lows, action_highs)
 
     # Construct the network
     network = Network(env, args)
@@ -168,7 +199,7 @@ if __name__ == "__main__":
             noise.reset()
             while not done:
                 # TODO: Perform an action and store the transition in the replay buffer
-                action = network.predict_actions([state])[0]
+                action = np.clip(network.predict_actions([state])[0] + noise.sample(), action_lows, action_highs)
                 next_state, reward, done, _ = env.step(action)
 
                 replay_buffer.append(Transition(state, action, reward, done, next_state))
@@ -199,7 +230,7 @@ if __name__ == "__main__":
                 state, reward, done, _ = env.step(action)
                 returns[-1] += reward
         print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
-        if np.mean(returns) > -200:
+        if np.mean(returns) > -180:
             break
 
     # On the end perform final evaluations with `env.reset(True)`

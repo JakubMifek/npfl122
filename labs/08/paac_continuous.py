@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#Team members:
+#f9afcdf4-21f5-11e8-9de3-00505601122b
+#90257956-3ea2-11e9-b0fd-00505601122b
+#13926bf3-c4b8-11e8-a4be-00505601122b
+#####################################
+#(Martin Mares)
+#(Jakub Mifek)
+#(Jan Pacovsky)
+
 import numpy as np
 import tensorflow as tf
 
@@ -86,7 +95,7 @@ class Network:
             #   of subactions for a single batch example (using `tf.reduce_sum` with `axis=1`).
             #   Then weight the resulting vector by `(returns - tf.stop_gradient(values))`
             #   and compute its mean.
-            loss = tf.math.reduce_mean(tf.reduce_sum(action_distribution.log_prob(actions), axis=1) * (returns - tf.stop_gradient(values)))
+            loss = tf.math.reduce_mean(tf.reduce_sum(-action_distribution.log_prob(actions), axis=1) * (returns - tf.stop_gradient(values)))
             
             # - negative value of the distribution entropy (use `entropy` method of
             #   the `action_distribution`) weighted by `args.entropy_regularization`.
@@ -121,21 +130,21 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     workers = 64
-    parser.add_argument("--entropy_regularization", default=2e-2, type=float, help="Entropy regularization weight.")
-    parser.add_argument("--evaluate_each", default=32, type=int, help="Evaluate each number of batches.")
-    parser.add_argument("--evaluate_for", default=5, type=int, help="Evaluate for number of batches.")
+    parser.add_argument("--entropy_regularization", default=5e-2, type=float, help="Entropy regularization weight.")
+    parser.add_argument("--evaluate_each", default=100, type=int, help="Evaluate each number of batches.")
+    parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
     parser.add_argument("--gamma", default=.95, type=float, help="Discounting factor.")
     parser.add_argument("--hidden_layer", default=40, type=int, help="Size of hidden layer.")
     parser.add_argument("--learning_rate", default=2e-4, type=float, help="Learning rate.")
-    parser.add_argument("--render_each", default=5, type=int, help="Render some episodes.")
-    parser.add_argument("--threads", default=2, type=int, help="Maximum number of threads to use.")
-    parser.add_argument("--tiles", default=8, type=int, help="Tiles to use.")
+    parser.add_argument("--render_each", default=None, type=int, help="Render some episodes.")
+    parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
+    parser.add_argument("--tiles", default=16, type=int, help="Tiles to use.")
     parser.add_argument("--workers", default=workers, type=int, help="Number of parallel workers.")
     args = parser.parse_args()
 
     # Fix random seeds and number of threads
-    np.random.seed(42)
-    tf.random.set_seed(42)
+    np.random.seed(128)
+    tf.random.set_seed(128)
     tf.config.threading.set_inter_op_parallelism_threads(args.threads)
     tf.config.threading.set_intra_op_parallelism_threads(args.threads)
 
@@ -194,26 +203,23 @@ if __name__ == "__main__":
                 if args.render_each and env.episode > 0 and (env.episode + 1) % args.render_each == 0:
                     env.render()
 
-                state = np.sum(tf.one_hot(state, env.weights, axis=1), axis=0)
-                action = network.predict_actions([state])[0][0]
+                state = np.sum(tf.one_hot([state], env.weights, axis=2), axis=1)
+                action = network.predict_actions(state)[0][0]
                 # mus, sds = network.predict_actions([state])
                 # action_map = lambda action: np.clip(np.random.normal(mus[action], sds[action]), action_lows, action_highs)
-                actions = np.array(list(map(action_map, range(len(mus)))))
-                state, reward, done, _ = env.step(actions[0])
+                # actions = np.array(list(map(action_map, range(len(mus)))))
+                state, reward, done, _ = env.step(action)
                 returns[-1] += reward
         print('')
         print("Evaluation of {} episodes: {} (last: {})".format(args.evaluate_for, np.mean(returns), reward))
         print('')
-        if np.mean(returns) > 100:
+        if np.mean(returns) > 95:
             break
 
     # On the end perform final evaluations with `env.reset(True)`
     for _ in range(100):
         state, done = env.reset(True), False
         while not done:
-            state = np.sum(tf.one_hot(state, env.weights, axis=1), axis=0)
-            # action = network.predict_actions([state])[0][0]
-            mus, sds = network.predict_actions([state])
-            action_map = lambda action: np.clip(np.random.normal(mus[action], sds[action]), action_lows, action_highs)
-            actions = np.array(list(map(action_map, range(len(mus)))))
-            state, reward, done, _ = env.step(actions[0])
+            state = np.sum(tf.one_hot([state], env.weights, axis=2), axis=1)
+            action = network.predict_actions(state)[0][0]
+            state, reward, done, _ = env.step(action)
