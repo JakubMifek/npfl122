@@ -9,15 +9,13 @@ import gym_evaluator
 class Network:
     def __init__(self, env, args):
         assert len(env.action_shape) == 1
+        self.tau = args.target_tau
         action_components = env.action_shape[0]
         action_lows, action_highs = map(np.array, env.action_ranges)
+        action_diff = np.array(list(map(lambda i: action_highs[i] - action_lows[i], range(len(action_lows)))))
 
-        print(action_components)
-        print(action_lows)
-        print(action_highs)
-
-        mul_values = tf.ones((action_components,)) * np.array(map(lambda i: action_highs[i] - action_lows[i], range(len(action_lows))))
-        add_values = tf.ones((action_components,)) * action_lows
+        mul_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_diff))
+        add_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_lows))
 
         mul_var = tf.Variable(initial_value=mul_values, trainable=False)
         add_var = tf.Variable(initial_value=add_values, trainable=False)
@@ -27,18 +25,21 @@ class Network:
         # or two hidden layers are employed. Each `action_component[i]` should
         # be mapped to range `[actions_lows[i]..action_highs[i]]`, for example
         # using `tf.nn.sigmoid` and suitable rescaling.
-        input_layer = tf.keras.layers.Input(input_shape=env.state_shape)
+        input_layer = tf.keras.layers.Input(shape=env.state_shape)
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
         hidden = tf.keras.layers.Dense(action_components, activation='sigmoid')(hidden)
         
-        hidden = tf.keras.layers.Multiply()((hidden, mul_var))
-        output_layer = tf.keras.layers.Add()((hidden, add_var))
+        hidden = tf.keras.layers.Multiply()([hidden, mul_var])
+        output_layer = tf.keras.layers.Add()([hidden, add_var])
 
         self.actor = tf.keras.models.Model(inputs=[input_layer], outputs=[output_layer])
         self.actor.compile(
             optimizer='adam',
             loss='mse'
         )
+
+        print(self.actor.summary())
+        
         # Then, create a target actor as a copy of the model using
         # `tf.keras.models.clone_model`.
         self.target_actor = tf.keras.models.clone_model(self.actor)
@@ -48,8 +49,8 @@ class Network:
         # through a hidden layer first, and then concatenated with `actions` and fed
         # through two more hidden layers, before computing the returns.
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
-        action_layer = tf.keras.layers.Input(input_shape=(1,))
-        hidden = tf.keras.layers.Concatenate()((hidden, action_layer))
+        action_layer = tf.keras.layers.Input(shape=(1,))
+        hidden = tf.keras.layers.Concatenate()([hidden, action_layer])
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
         output_layer = tf.keras.layers.Dense(1)(hidden)
@@ -60,25 +61,35 @@ class Network:
             loss='mse'
         )
 
+        print(self.critic.summary())
+
         # Then, create a target critic as a copy of the model using `tf.keras.models.clone_model`.
         self.target_critic = tf.keras.models.clone_model(self.critic)
 
     @tf.function
     def _train(self, states, actions, returns):
         # TODO: Train separately the actor and critic.
-        #
+        self.critic.train_on_batch((states, actions), returns)
+        self.actor.train_on_batch(states, actions)
+
         # Furthermore, update the weights of the target actor and critic networks
         # by using args.target_tau option.
-        pass
+        # self.target_actor.set_weights(self.actor.get_weights())
+        # print('target actor trained')
+        # self.target_critic.set_weights(self.critic.get_weights())
+        # print('target critic trained')
 
     def train(self, states, actions, returns):
         states, actions, returns = np.array(states, np.float32), np.array(actions, np.float32), np.array(returns, np.float32)
         self._train(states, actions, returns)
+        self.target_actor.set_weights((1-self.tau) * np.array(self.target_actor.get_weights()) + self.tau * np.array(self.actor.get_weights()))
+        self.target_critic.set_weights((1-self.tau) * np.array(self.target_critic.get_weights()) + self.tau * np.array(self.critic.get_weights()))
+
 
     @tf.function
     def _predict_actions(self, states):
         # TODO: Compute actions by the actor
-        pass
+        return self.actor(states, training=False)
 
     def predict_actions(self, states):
         states = np.array(states, np.float32)
@@ -88,7 +99,8 @@ class Network:
     def _predict_values(self, states):
         # TODO: Predict actions by the target actor and evaluate them using
         # target_critic.
-        pass
+        actions = self.target_actor(states, training=False)
+        return self.target_critic((states, actions), training=False)
 
     def predict_values(self, states):
         states = np.array(states, np.float32)
@@ -116,17 +128,17 @@ if __name__ == "__main__":
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", default=None, type=int, help="Batch size.")
+    parser.add_argument("--batch_size", default=256, type=int, help="Batch size.")
     parser.add_argument("--env", default="Pendulum-v0", type=str, help="Environment.")
     parser.add_argument("--evaluate_each", default=50, type=int, help="Evaluate each number of episodes.")
     parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
     parser.add_argument("--noise_sigma", default=0.2, type=float, help="UB noise sigma.")
     parser.add_argument("--noise_theta", default=0.15, type=float, help="UB noise theta.")
-    parser.add_argument("--gamma", default=None, type=float, help="Discounting factor.")
-    parser.add_argument("--hidden_layer", default=None, type=int, help="Size of hidden layer.")
-    parser.add_argument("--learning_rate", default=None, type=float, help="Learning rate.")
-    parser.add_argument("--render_each", default=0, type=int, help="Render some episodes.")
-    parser.add_argument("--target_tau", default=None, type=float, help="Target network update weight.")
+    parser.add_argument("--gamma", default=0.95, type=float, help="Discounting factor.")
+    parser.add_argument("--hidden_layer", default=20, type=int, help="Size of hidden layer.")
+    parser.add_argument("--learning_rate", default=1e-3, type=float, help="Learning rate.")
+    parser.add_argument("--render_each", default=None, type=int, help="Render some episodes.")
+    parser.add_argument("--target_tau", default=1e-4, type=float, help="Target network update weight.")
     parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
     args = parser.parse_args()
 
@@ -156,12 +168,23 @@ if __name__ == "__main__":
             noise.reset()
             while not done:
                 # TODO: Perform an action and store the transition in the replay buffer
+                action = network.predict_actions([state])[0]
+                next_state, reward, done, _ = env.step(action)
+
+                replay_buffer.append(Transition(state, action, reward, done, next_state))
+                state = next_state
 
                 # If the replay_buffer is large enough, perform training
                 if len(replay_buffer) >= args.batch_size:
                     batch = np.random.choice(len(replay_buffer), size=args.batch_size, replace=False)
                     states, actions, rewards, dones, next_states = zip(*[replay_buffer[i] for i in batch])
                     # TODO: Perform the training
+                    predicted = network.predict_values(next_states)
+                    returns = rewards + args.gamma * np.array([(predicted[idx] if not dones[idx] else 0) for idx in range(args.batch_size)])
+                    network.train(states, actions, returns)
+
+                if len(replay_buffer) >= 100000:
+                    replay_buffer.popleft()
 
         # Periodic evaluation
         returns = []
@@ -176,5 +199,7 @@ if __name__ == "__main__":
                 state, reward, done, _ = env.step(action)
                 returns[-1] += reward
         print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
+        if np.mean(returns) > -200:
+            break
 
     # On the end perform final evaluations with `env.reset(True)`
