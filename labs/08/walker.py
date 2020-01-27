@@ -156,7 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("--learning_rate", default=1e-3, type=float, help="Learning rate.")
     parser.add_argument("--render_each", default=10, type=int, help="Render some episodes.")
     parser.add_argument("--target_tau", default=1e-2, type=float, help="Target network update weight.")
-    parser.add_argument("--threads", default=6, type=int, help="Maximum number of threads to use.")
+    parser.add_argument("--threads", default=8, type=int, help="Maximum number of threads to use.")
     args = parser.parse_args()
 
     # Fix random seeds and number of threads
@@ -168,6 +168,8 @@ if __name__ == "__main__":
     # Create the environment
     env = gym_evaluator.GymEnvironment(args.env)
     action_lows, action_highs = map(np.array, env.action_ranges)
+
+    best_result = 99
 
     # Construct the network
     network = Network(env, args)
@@ -216,8 +218,16 @@ if __name__ == "__main__":
                 action = network.predict_actions([state])[0]
                 state, reward, done, _ = env.step(action)
                 returns[-1] += reward
+
         print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
-        if np.mean(returns) > 100:
+        # Save networks if perform good
+        if round(np.mean(returns)) > best_result: # optimally np.mean(env._episode_returns[-10:]), 2)
+            print('saving model')
+            best_result = round(np.mean(returns), 2)
+            network.actor.save('networks/walker-actor-{}.model'.format(best_result))
+            network.critic.save('networks/walker-critic-{}.model'.format(best_result))
+
+        if best_result > 150:
             break
 
     # On the end perform final evaluations with `env.reset(True)`
