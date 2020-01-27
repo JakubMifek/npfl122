@@ -24,11 +24,8 @@ class Network:
         action_lows, action_highs = map(np.array, env.action_ranges)
         action_diff = np.array(list(map(lambda i: action_highs[i] - action_lows[i], range(len(action_lows)))))
 
-        mul_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_diff))
-        add_values = tf.multiply(tf.ones((action_components,)), tf.convert_to_tensor(action_lows))
-
-        mul_var = tf.Variable(initial_value=mul_values, trainable=False)
-        add_var = tf.Variable(initial_value=add_values, trainable=False)
+        mul_tensor = tf.expand_dims(tf.constant(action_diff), 0)
+        add_tensor = tf.expand_dims(tf.constant(action_lows), 0)
 
         # Create `actor` network, starting with `inputs` and returning
         # `action_components` values for each batch example. Usually, one
@@ -38,8 +35,8 @@ class Network:
         input_layer = tf.keras.layers.Input(shape=env.state_shape)
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
         hidden = tf.keras.layers.Dense(action_components, activation='sigmoid')(hidden)
-        output_layer = tf.keras.layers.Multiply()([hidden, mul_var])
-        output_layer = tf.keras.layers.Add()([output_layer, add_var])
+        output_layer = tf.keras.layers.Multiply()([hidden, mul_tensor])
+        output_layer = tf.keras.layers.Add()([output_layer, add_tensor])
 
         self.actor = tf.keras.models.Model(inputs=[input_layer], outputs=[output_layer])
         self.actor.compile(
@@ -59,7 +56,7 @@ class Network:
         # through a hidden layer first, and then concatenated with `actions` and fed
         # through two more hidden layers, before computing the returns.
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
-        action_layer = tf.keras.layers.Input(shape=(1,))
+        action_layer = tf.keras.layers.Input(shape=env.action_shape)
         hidden = tf.keras.layers.Concatenate()([hidden, action_layer])
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
         hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
@@ -149,7 +146,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", default=32, type=int, help="Batch size.")
-    parser.add_argument("--env", default="Pendulum-v0", type=str, help="Environment.")
+    parser.add_argument("--env", default="BipedalWalker-v2", type=str, help="Environment.")
     parser.add_argument("--evaluate_each", default=10, type=int, help="Evaluate each number of episodes.")
     parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
     parser.add_argument("--noise_sigma", default=0.2, type=float, help="UB noise sigma.")
@@ -220,7 +217,7 @@ if __name__ == "__main__":
                 state, reward, done, _ = env.step(action)
                 returns[-1] += reward
         print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
-        if np.mean(returns) > -180:
+        if np.mean(returns) > 100:
             break
 
     # On the end perform final evaluations with `env.reset(True)`
