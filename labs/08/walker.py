@@ -157,7 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--render_each", default=10, type=int, help="Render some episodes.")
     parser.add_argument("--target_tau", default=1e-2, type=float, help="Target network update weight.")
     parser.add_argument("--threads", default=8, type=int, help="Maximum number of threads to use.")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # Fix random seeds and number of threads
     np.random.seed(128)
