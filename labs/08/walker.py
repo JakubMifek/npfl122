@@ -33,8 +33,13 @@ class Network:
         # be mapped to range `[actions_lows[i]..action_highs[i]]`, for example
         # using `tf.nn.sigmoid` and suitable rescaling.
         input_layer = tf.keras.layers.Input(shape=env.state_shape)
-        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
-        hidden = tf.keras.layers.Dense(action_components, activation='sigmoid')(hidden)
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation=None, use_bias=False)(input_layer)
+        hidden = tf.keras.layers.BatchNormalization()(hidden)
+        hidden = tf.keras.activations.relu(hidden)
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation=None, use_bias=False)(hidden)
+        hidden = tf.keras.layers.BatchNormalization()(hidden)
+        hidden = tf.keras.activations.relu(hidden)
+        hidden = tf.keras.layers.Dense(action_components, activation=tf.nn.sigmoid)(hidden)
         output_layer = tf.keras.layers.Multiply()([hidden, mul_tensor])
         output_layer = tf.keras.layers.Add()([output_layer, add_tensor])
 
@@ -55,11 +60,18 @@ class Network:
         # and producing a vector of predicted returns. Usually, `inputs` are fed
         # through a hidden layer first, and then concatenated with `actions` and fed
         # through two more hidden layers, before computing the returns.
-        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(input_layer)
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation=None, use_bias=False)(input_layer)
+        hidden = tf.keras.layers.BatchNormalization()(hidden)
+        hidden = tf.keras.activations.relu(hidden)
         action_layer = tf.keras.layers.Input(shape=env.action_shape)
         hidden = tf.keras.layers.Concatenate()([hidden, action_layer])
-        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
-        hidden = tf.keras.layers.Dense(args.hidden_layer, activation='relu')(hidden)
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation=None, use_bias=False)(hidden)
+        hidden = tf.keras.layers.BatchNormalization()(hidden)
+        hidden = tf.keras.activations.relu(hidden)
+        hidden = tf.keras.layers.Dense(args.hidden_layer, activation=None, use_bias=False)(hidden)
+        hidden = tf.keras.layers.BatchNormalization()(hidden)
+        hidden = tf.keras.activations.relu(hidden)
+
         output_layer = tf.keras.layers.Dense(1)(hidden)
 
         self.critic = tf.keras.models.Model(inputs=[input_layer, action_layer], outputs=[output_layer])
@@ -81,8 +93,8 @@ class Network:
             values = self.critic((states, actions), training=False)[:, 0]
             loss = -tf.math.reduce_mean(values)
 
-        actor_grads = tape.gradient(loss, self.actor.variables)
-        self._actor_optimizer.apply_gradients(zip(actor_grads, self.actor.variables))
+        actor_grads = tape.gradient(loss, self.actor.trainable_variables)
+        self._actor_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))
 
         # TODO: Train separately the actor and critic.
 
@@ -145,14 +157,14 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", default=32, type=int, help="Batch size.")
+    parser.add_argument("--batch_size", default=64, type=int, help="Batch size.")
     parser.add_argument("--env", default="BipedalWalker-v2", type=str, help="Environment.")
     parser.add_argument("--evaluate_each", default=10, type=int, help="Evaluate each number of episodes.")
     parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
     parser.add_argument("--noise_sigma", default=0.2, type=float, help="UB noise sigma.")
     parser.add_argument("--noise_theta", default=0.15, type=float, help="UB noise theta.")
-    parser.add_argument("--gamma", default=1.0, type=float, help="Discounting factor.")
-    parser.add_argument("--hidden_layer", default=50, type=int, help="Size of hidden layer.")
+    parser.add_argument("--gamma", default=0.99, type=float, help="Discounting factor.")
+    parser.add_argument("--hidden_layer", default=400, type=int, help="Size of hidden layer.")
     parser.add_argument("--learning_rate", default=1e-3, type=float, help="Learning rate.")
     parser.add_argument("--render_each", default=10, type=int, help="Render some episodes.")
     parser.add_argument("--target_tau", default=1e-2, type=float, help="Target network update weight.")
@@ -221,7 +233,7 @@ if __name__ == "__main__":
 
         print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
         # Save networks if perform good
-        if round(np.mean(returns)) > best_result: # optimally np.mean(env._episode_returns[-10:]), 2)
+        if round(np.mean(returns)) > best_result:  # optimally np.mean(env._episode_returns[-10:]), 2)
             print('saving model')
             best_result = round(np.mean(returns), 2)
             network.actor.save('networks/walker-actor-{}.model'.format(best_result))
